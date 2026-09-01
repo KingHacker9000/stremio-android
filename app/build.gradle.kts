@@ -220,7 +220,7 @@ streamServerTargets.forEach { target ->
 }
 
 tasks.register<Copy>("copyStreamServerJniLibs") {
-    dependsOn(streamServerTargets.map { "buildStreamServer${target.taskSuffix}" })
+    dependsOn(streamServerTargets.map { "buildStreamServer${it.taskSuffix}" })
     streamServerTargets.forEach { target ->
         from(streamServerRoot.resolve("target/${target.rustTarget}/release/libstream_server.so")) {
             into(target.abi)
