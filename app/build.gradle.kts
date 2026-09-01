@@ -50,7 +50,9 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.stremio.mobile"
+        // Sense intentionally uses a distinct install identity so it can coexist
+        // with the regular Stremio/community client even when signatures differ.
+        applicationId = "com.stremio.sense"
         minSdk = 24
         targetSdk = 37
         versionCode = stringPropertyOrEnv("VERSION_CODE")?.toIntOrNull() ?: 1
@@ -218,7 +220,7 @@ streamServerTargets.forEach { target ->
 }
 
 tasks.register<Copy>("copyStreamServerJniLibs") {
-    dependsOn(streamServerTargets.map { "buildStreamServer${it.taskSuffix}" })
+    dependsOn(streamServerTargets.map { "buildStreamServer${target.taskSuffix}" })
     streamServerTargets.forEach { target ->
         from(streamServerRoot.resolve("target/${target.rustTarget}/release/libstream_server.so")) {
             into(target.abi)
