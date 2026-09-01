@@ -21,7 +21,9 @@ jobs:
       - name: Remove patch kit
         run: rm -rf .sense .github/workflows/sense-apply.yml
       - name: Build debug APK
-        run: ./gradlew :app:assembleDebug --stacktrace
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:assembleDebug --stacktrace
       - name: Commit validated integration
         run: |
           git config user.name 'github-actions[bot]'
