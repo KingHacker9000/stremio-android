@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - master
+      - sense-mvp
   workflow_dispatch:
 
 permissions:
@@ -43,6 +44,6 @@ jobs:
       - name: Upload debug APKs
         uses: actions/upload-artifact@v4
         with:
-          name: stremio-mobile-debug-apks
+          name: stremio-sense-debug-apks
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
