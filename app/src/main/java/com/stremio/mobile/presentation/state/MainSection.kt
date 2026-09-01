@@ -4,5 +4,6 @@ enum class MainSection {
     Home,
     Discover,
     Library,
+    Downloads,
     Settings,
 }

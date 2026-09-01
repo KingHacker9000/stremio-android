@@ -27,6 +27,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Cloud
+import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Storage
@@ -67,6 +68,7 @@ fun StreamsSheet(
     preferredQuality: String,
     onBack: () -> Unit,
     onSelect: (StreamOption) -> Unit,
+    onDownload: (StreamOption) -> Unit,
     onSelectEpisode: (EpisodeOption) -> Unit,
     onSelectSeason: (Int) -> Unit,
     onSelectProvider: (String?) -> Unit,
@@ -294,7 +296,8 @@ fun StreamsSheet(
                             StreamRow(
                                 option = option,
                                 enabled = !state.isResolving,
-                                onSelect = { onSelect(option) }
+                                onSelect = { onSelect(option) },
+                                onDownload = { onDownload(option) }
                             )
                         }
                     }
@@ -401,6 +404,7 @@ private fun StreamRow(
     option: StreamOption,
     enabled: Boolean,
     onSelect: () -> Unit,
+    onDownload: () -> Unit,
 ) {
     ThemedCard(
         modifier = Modifier.fillMaxWidth(),
@@ -561,6 +565,14 @@ private fun StreamRow(
                 )
             }
         }
+        Spacer(modifier = Modifier.width(8.dp))
+        ThemedIconButton(
+            imageVector = Icons.Outlined.Download,
+            contentDescription = "Download",
+            onClick = onDownload,
+            modifier = Modifier.size(40.dp),
+            containerColor = GlassSurface,
+        )
     }
 }
 }

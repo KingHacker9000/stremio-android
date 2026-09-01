@@ -20,6 +20,8 @@ import com.stremio.mobile.player.PlayerEngine
 import com.stremio.mobile.player.PlayerSubtitleStyle
 import com.stremio.mobile.player.PlayerTrackOption
 import com.stremio.mobile.core.theme.AppFont
+import com.stremio.mobile.sense.SenseAndroidDownloads
+import com.stremio.mobile.sense.SenseRepository
 import timber.log.Timber
 import com.stremio.mobile.presentation.state.*
 import com.stremio.mobile.server.StreamingServerController
@@ -66,6 +68,8 @@ class MainViewModel(
     appContext: Context,
 ) : ViewModel() {
     private val appContext = appContext.applicationContext
+    private val senseDownloads = SenseAndroidDownloads(this.appContext)
+    private val senseRepository = SenseRepository(this.appContext)
     private val latestIntentUri = MutableStateFlow<String?>(null)
     private val account = MutableStateFlow(authRepository.accountFromCore())
     private var authInFlight = false
@@ -1423,6 +1427,26 @@ class MainViewModel(
         authRepository.rememberLocalStreamSelection(item.type, item.id, videoId, option)
     }
 
+    fun downloadStream(option: StreamOption) {
+        viewModelScope.launch {
+            runCatching {
+                startServerInternal()
+                val url = runCatching { core.resolvePlayableUrl(option.core).first() }.getOrNull()
+                    ?: core.directUrl(option.core.stream)
+                    ?: error("Could not resolve a downloadable URL")
+                val current = streams.value
+                val item = current.forItem
+                val title = listOfNotNull(item?.name, option.quality).filter { it.isNotBlank() }.joinToString(" - ")
+                senseDownloads.enqueue(
+                    sourceUrl = url,
+                    name = title.ifBlank { option.name },
+                    contentId = item?.id,
+                    videoId = current.selectedVideoId,
+                )
+            }.onFailure { Timber.w(it, "Failed to enqueue offline download") }
+        }
+    }
+
     fun closePlayer() {
         playJob?.cancel()
         playJob = null
@@ -1534,6 +1558,7 @@ class MainViewModel(
 
     /** Called when ExoPlayer reaches the end of the current stream. */
     fun onPlaybackEnded() {
+        streams.value.forItem?.id?.let { senseRepository.record(it, "completed") }
         playbackRepository.reportEnded()
         val next = nextVideo.value
         if (profileSettings.value?.bingeWatching == true && next != null) {

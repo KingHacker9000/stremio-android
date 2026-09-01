@@ -270,6 +270,7 @@ fun StremioMobileApp(viewModel: MainViewModel) {
                         }
                     },
                     onSelect = viewModel::playStream,
+                    onDownload = viewModel::downloadStream,
                     onSelectEpisode = viewModel::selectEpisode,
                     onSelectSeason = viewModel::selectSeason,
                     onSelectProvider = viewModel::selectStreamProvider,
@@ -797,6 +798,12 @@ private fun BoardScreen(
                             )
                         }
                     }
+                    item(contentType = "sense-top-picks") {
+                        SenseTopPicksRow(
+                            seedIds = state.continueWatching.items.map { it.id },
+                            onOpenDetails = onOpenDetails,
+                        )
+                    }
                     if (state.continueWatching.items.isNotEmpty() || state.continueWatching.isLoading) {
                         item(contentType = "shelf") {
                             PosterShelf(
@@ -932,6 +939,10 @@ private fun BoardScreen(
                             }
                         }
                     }
+                }
+
+                MainSection.Downloads -> {
+                    item { SenseDownloadsPanel(modifier = Modifier.fillMaxWidth()) }
                 }
 
                 MainSection.Settings -> {
