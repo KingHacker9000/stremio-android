@@ -11,17 +11,174 @@ on:
 
 permissions:
   contents: read
+  actions: write
 
 jobs:
-  build:
-    name: Build Debug APK
+  build-stream-server:
+    name: Build stream-server ${{ matrix.abi }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - abi: armeabi-v7a
+            rust-target: armv7-linux-androideabi
+            vcpkg-triplet: arm-android
+            vcpkg-arch: arm
+            android-abi: armeabi-v7a
+            make-host: armv7a-linux-androideabi
+          - abi: arm64-v8a
+            rust-target: aarch64-linux-android
+            vcpkg-triplet: arm64-android
+            vcpkg-arch: arm64
+            android-abi: arm64-v8a
+            make-host: aarch64-linux-android
+          - abi: x86
+            rust-target: i686-linux-android
+            vcpkg-triplet: x86-android
+            vcpkg-arch: x86
+            android-abi: x86
+            make-host: i686-linux-android
+          - abi: x86_64
+            rust-target: x86_64-linux-android
+            vcpkg-triplet: x64-android
+            vcpkg-arch: x64
+            android-abi: x86_64
+            make-host: x86_64-linux-android
+
+    env:
+      VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+
+    steps:
+      - name: Checkout pinned stream-server
+        uses: actions/checkout@v4
+        with:
+          repository: stremio-native/stream-server
+          ref: 368666eb09f9c4849a7df7f2a6a8b26171f24cfb
+          path: stream-server
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-target }}
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+
+      - name: Set up Android NDK
+        uses: nttld/setup-ndk@v1
+        id: setup-ndk
+        with:
+          ndk-version: r27c
+
+      - name: Export GitHub Actions cache environment for vcpkg
+        uses: actions/github-script@v7
+        with:
+          script: |
+            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL)
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN)
+
+      - name: Cache vcpkg installed packages
+        uses: actions/cache@v4
+        with:
+          path: vcpkg_installed-${{ matrix.abi }}
+          key: sense-android-vcpkg-${{ matrix.vcpkg-triplet }}-${{ hashFiles('stream-server/vcpkg.json') }}
+          restore-keys: |
+            sense-android-vcpkg-${{ matrix.vcpkg-triplet }}-
+
+      - name: Create Android vcpkg triplet
+        shell: bash
+        run: |
+          mkdir -p stream-server/triplets
+          cat > stream-server/triplets/${{ matrix.vcpkg-triplet }}.cmake << 'EOF'
+          set(VCPKG_TARGET_ARCHITECTURE ${{ matrix.vcpkg-arch }})
+          set(VCPKG_CRT_LINKAGE dynamic)
+          set(VCPKG_LIBRARY_LINKAGE static)
+          set(VCPKG_CMAKE_SYSTEM_NAME Android)
+          set(VCPKG_CMAKE_SYSTEM_VERSION 24)
+          set(VCPKG_MAKE_BUILD_TRIPLET "--host=${{ matrix.make-host }}")
+          EOF
+
+          if [[ "${{ matrix.android-abi }}" == "armeabi-v7a" ]]; then
+            echo 'set(VCPKG_CMAKE_CONFIGURE_OPTIONS -DANDROID_ABI=armeabi-v7a -DANDROID_ARM_NEON=ON)' >> stream-server/triplets/${{ matrix.vcpkg-triplet }}.cmake
+          else
+            echo 'set(VCPKG_CMAKE_CONFIGURE_OPTIONS -DANDROID_ABI=${{ matrix.android-abi }})' >> stream-server/triplets/${{ matrix.vcpkg-triplet }}.cmake
+          fi
+
+      - name: Set up vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: '84bab45d415d22042bd0b9081aea57f362da3f35'
+          vcpkgDirectory: '${{ github.workspace }}/vcpkg'
+          vcpkgJsonGlob: 'stream-server/vcpkg.json'
+          runVcpkgInstall: false
+
+      - name: Install native dependencies
+        working-directory: stream-server
+        run: |
+          ${{ github.workspace }}/vcpkg/vcpkg install \
+            --triplet ${{ matrix.vcpkg-triplet }} \
+            --x-install-root=${{ github.workspace }}/vcpkg_installed-${{ matrix.abi }} \
+            --overlay-triplets=triplets \
+            --overlay-ports=vcpkg-overlays
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+
+      - name: Build stream-server JNI library
+        working-directory: stream-server/server
+        run: cargo ndk --target ${{ matrix.rust-target }} --platform 24 build --release --features libtorrent --no-default-features
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+          VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+          VCPKG_INSTALLED_DIR: ${{ github.workspace }}/vcpkg_installed-${{ matrix.abi }}
+          VCPKGRS_TRIPLET: ${{ matrix.vcpkg-triplet }}
+          PKG_CONFIG_ALLOW_CROSS: "1"
+          PKG_CONFIG_PATH: ${{ github.workspace }}/vcpkg_installed-${{ matrix.abi }}/${{ matrix.vcpkg-triplet }}/lib/pkgconfig
+          PKG_CONFIG_SYSROOT_DIR: ${{ github.workspace }}/vcpkg_installed-${{ matrix.abi }}/${{ matrix.vcpkg-triplet }}
+          OPENSSL_DIR: ${{ github.workspace }}/vcpkg_installed-${{ matrix.abi }}/${{ matrix.vcpkg-triplet }}
+
+      - name: Prepare JNI artifact
+        shell: bash
+        run: |
+          mkdir -p jniLibs/${{ matrix.abi }}
+          cp stream-server/target/${{ matrix.rust-target }}/release/libstream_server.so jniLibs/${{ matrix.abi }}/
+          test -s jniLibs/${{ matrix.abi }}/libstream_server.so
+          file jniLibs/${{ matrix.abi }}/libstream_server.so
+          ls -lh jniLibs/${{ matrix.abi }}/libstream_server.so
+
+      - name: Upload JNI library
+        uses: actions/upload-artifact@v4
+        with:
+          name: stream-server-jni-${{ matrix.abi }}
+          path: jniLibs/
+          if-no-files-found: error
+
+  build:
+    name: Build Debug APK with JNI
+    runs-on: ubuntu-latest
+    needs: build-stream-server
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
+
+      - name: Download stream-server JNI libraries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: stream-server-jni-*
+          path: app/src/main/jniLibs/
+          merge-multiple: true
+
+      - name: Verify JNI inputs
+        shell: bash
+        run: |
+          for abi in armeabi-v7a arm64-v8a x86 x86_64; do
+            lib="app/src/main/jniLibs/${abi}/libstream_server.so"
+            test -s "$lib"
+            echo "$abi: $(stat -c '%s bytes' "$lib")"
+          done
 
       - name: Set up JDK
         uses: actions/setup-java@v4
@@ -35,11 +192,22 @@ jobs:
       - name: Make Gradle executable
         run: chmod +x ./gradlew
 
-      - name: Compile and assemble debug
-        run: ./gradlew :app:compileDebugKotlin :app:assembleDebug --warning-mode all
+      - name: Compile, test and assemble debug
+        run: ./gradlew :app:testDebugUnitTest :app:compileDebugKotlin :app:assembleDebug --warning-mode all
 
       - name: Verify debug APK outputs
         run: python .github/scripts/verify-apk-outputs.py app/build/outputs/apk/debug armeabi-v7a arm64-v8a x86 x86_64 universal
+
+      - name: Verify stream-server is packaged in APKs
+        shell: bash
+        run: |
+          universal=$(find app/build/outputs/apk/debug -maxdepth 1 -name '*universal*.apk' -print -quit)
+          test -n "$universal"
+          for abi in armeabi-v7a arm64-v8a x86 x86_64; do
+            unzip -l "$universal" | grep -q "lib/${abi}/libstream_server.so"
+          done
+          echo "Verified libstream_server.so for all ABIs in $universal"
+          unzip -l "$universal" | grep 'libstream_server.so'
 
       - name: Upload debug APKs
         uses: actions/upload-artifact@v4
